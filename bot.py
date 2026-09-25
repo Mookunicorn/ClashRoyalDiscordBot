@@ -27,6 +27,7 @@ EXTENSIONS = (
     "cogs.setup",
     "cogs.verification",
     "cogs.explorer",
+    "cogs.updater",
 )
 
 
