@@ -194,6 +194,14 @@ async def build_diagnostic_embed(bot, guild) -> discord.Embed:
     linked = len(await bot.db.linked_players())
     add("ok", f"Comptes liés : {linked}")
 
+    from updater import is_git_repo
+    if not cfg.auto_update_enabled:
+        add("warn", "Mise à jour automatique désactivée")
+    elif not is_git_repo():
+        add("error", "Mise à jour automatique activée, mais le bot ne tourne pas depuis un dépôt Git (`git clone`)")
+    else:
+        add("ok", f"Mise à jour automatique activée (vérifiée toutes les {cfg.update_interval} min)")
+
     return discord.Embed(
         title="🩺 Diagnostic", description="\n".join(lines),
         color=discord.Color.red() if any(l.startswith("❌") for l in lines)
