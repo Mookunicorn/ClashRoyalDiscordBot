@@ -37,6 +37,7 @@ permission spéciale (voir plus bas).
 - ⚙️ **Réglages du clan** : passage ouvert / sur invitation / fermé, trophées requis, nom,
   description, pays — annoncé dans le salon des logs dès qu'un changement est détecté
 - 📅 **Rapport quotidien** dans le salon de guerre (désactivé par défaut) : à une heure réglable, un résumé du jour (entraînement / jour de guerre, classement du clan, decks encore à jouer). Se règle dans `/configurer` (étape 4).
+- 🔄 **Mise à jour automatique** depuis GitHub (désactivée par défaut) : à intervalle réglable, le bot vérifie s'il existe de nouveaux commits sur la branche suivie et, si oui, fait `git pull`, réinstalle les dépendances si besoin, puis se relance tout seul (même processus, aucun redémarrage manuel). Se règle dans `/configurer` (étape 3) ; `/maj_verifier` force une vérification immédiate. Ne fonctionne que si le bot tourne depuis un `git clone` (voir « Mise à jour automatique » plus bas).
 - 🔄 Ralentissement automatique et reprise en cas d'erreur ou de limite de débit de l'API
 
 **Discord ↔ Clash Royale**
@@ -89,6 +90,7 @@ permission spéciale (voir plus bas).
 | `/lier`, `/delier` | Lier/délier manuellement un compte (sans preuve — dernier recours) |
 | `/panneau` | Poster le bouton « Lier mon compte » dans le salon courant |
 | `/liaison_test` | Tester si la vérification par jeton API fonctionne avec ta clé |
+| `/maj_verifier` | Vérifier et appliquer une mise à jour depuis GitHub maintenant |
 | `/verifier` | Vérifier un joueur : tag, présence dans le clan, liaison, pseudo, rôles |
 | `/verifier_tous` | Audit complet du clan (non liés, non vérifiés, désynchronisés…) |
 
@@ -129,6 +131,31 @@ Docker : `docker compose up -d --build`.
 Puis sur Discord : `/configurer` (et rien d'autre pour démarrer).
 
 Tests hors-ligne (API simulée) : `python -m unittest discover tests -v`
+
+## Mise à jour automatique
+
+Le bot peut se mettre à jour tout seul : à intervalle réglable (`/configurer`, étape 3), il
+vérifie si la branche suivie sur GitHub a de nouveaux commits (`git fetch` + comparaison
+avec `HEAD`). S'il en trouve, il fait `git pull --ff-only`, réinstalle les dépendances
+(`pip install -r requirements.txt`) si le fichier a changé, puis se relance dans le **même
+processus** (`os.execv`) — pas besoin de redémarrer le service manuellement, et ça marche
+aussi bien avec systemd qu'en lancement direct (`python bot.py`).
+
+**Prérequis** : le bot doit tourner depuis un dossier issu de `git clone` (pas juste un zip
+extrait) et avoir une branche amont configurée (`git push -u origin main` fait déjà ça).
+Sans ça, `/configurer` → « Tester la configuration » et `/maj_verifier` te le signalent
+clairement plutôt que d'échouer en silence.
+
+**Activation** : désactivée par défaut. `/configurer` (étape 3, champs « Mise à jour
+automatique » et « Vérif. mise à jour ») pour l'activer et choisir l'intervalle (5 à 1440
+minutes). `/maj_verifier` force une vérification et une mise à jour immédiates, utile pour
+tester juste après l'avoir activée.
+
+⚠️ **Implication de sécurité à connaître** : activer cette option donne à quiconque peut
+pousser sur la branche suivie du dépôt la capacité de faire exécuter du code sur la
+machine qui héberge le bot, au prochain cycle de vérification. C'est sans risque tant que
+tu es seul à pousser sur ce dépôt ; si tu ajoutes des collaborateurs ou acceptes des
+contributions externes, protège la branche (*branch protection*) ou désactive cette option.
 
 ## Sécurité de la liaison Discord ↔ joueur
 
@@ -199,12 +226,14 @@ embeds.py          mise en forme des messages
 ui.py              boutons persistants, modales, défi carte favorite
 helpers.py         résolution nom/tag, autocomplétion, erreurs communes
 war_utils.py        état de la guerre en cours (decks restants)
+updater.py           mise à jour automatique (git pull + redémarrage)
 cogs/tracker.py     arrivées / départs / promotions / réglages du clan
 cogs/war.py         rappels de decks + récap de guerre
 cogs/commands.py    commandes du clan suivi
 cogs/explorer.py    cartes, tournois, classements, pays, saisons, événements
 cogs/discord_roles.py  rangs → rôles, renommage, accueil, liaison
 cogs/verification.py   /verifier, /verifier_tous
+cogs/updater.py         mise à jour automatique (tâche périodique + /maj_verifier)
 cogs/setup.py           /configurer (assistant privé, tout le réglage en une commande)
 tests/              tests hors-ligne (API et Discord simulés)
 ```
