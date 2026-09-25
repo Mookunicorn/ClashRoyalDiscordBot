@@ -278,9 +278,19 @@ class Step3(discord.ui.Modal, title="Configuration 3/4 — Rôles & surveillance
             label="Fuseau horaire", required=False,
             placeholder="Europe/Paris", default=cfg.timezone,
         )
+        self.maj_auto = discord.ui.TextInput(
+            label="Mise à jour automatique (GitHub)", required=False,
+            placeholder="oui ou non", default="oui" if cfg.auto_update_enabled else "non",
+        )
+        self.maj_intervalle = discord.ui.TextInput(
+            label="Vérif. mise à jour (minutes, 5-1440)", required=False,
+            default=str(cfg.update_interval),
+        )
         self.add_item(self.staff)
         self.add_item(self.surveillance)
         self.add_item(self.fuseau)
+        self.add_item(self.maj_auto)
+        self.add_item(self.maj_intervalle)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         bot = interaction.client
@@ -297,6 +307,8 @@ class Step3(discord.ui.Modal, title="Configuration 3/4 — Rôles & surveillance
             await apply_role_field(bot, guild, results, "role_staff", self.staff.value)
         await apply_field(bot, results, "intervalle", self.surveillance.value)
         await apply_field(bot, results, "fuseau", self.fuseau.value)
+        await apply_field(bot, results, "maj_auto", self.maj_auto.value)
+        await apply_field(bot, results, "maj_intervalle", self.maj_intervalle.value)
         if not results:
             results.append("(rien de changé)")
         await send_step(interaction, "Étape 3/4 — Rôles & surveillance", results, "3", "Étape 4/4 : Guerre & liaison →", Step4)
@@ -389,6 +401,7 @@ class Setup(commands.Cog):
             )
             return
         start_wizard(interaction.user.id, interaction.guild.id)
+        await interaction.response.defer(ephemeral=True)  # accuser réception tout de suite : l'envoi du MP peut prendre plus de 3 s
         embed = discord.Embed(
             title="⚙️ Configuration du bot",
             description=(
@@ -405,12 +418,12 @@ class Setup(commands.Cog):
             await dm.send(embed=embed, view=WizardView(self.bot, interaction.user.id))
         except discord.HTTPException:
             end_wizard(interaction.user.id)
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Je n'arrive pas à t'écrire en message privé. Autorise les messages privés des membres du "
                 "serveur (Paramètres de confidentialité Discord) puis relance `/configurer`.", ephemeral=True
             )
             return
-        await interaction.response.send_message("📬 Je t'ai envoyé la configuration en message privé.", ephemeral=True)
+        await interaction.followup.send("📬 Je t'ai envoyé la configuration en message privé.", ephemeral=True)
 
 
 async def setup(bot) -> None:
