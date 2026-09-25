@@ -57,6 +57,8 @@ SPECS: tuple[Spec, ...] = (
     Spec("quotidien", "daily_report_enabled", "DAILY_REPORT_ENABLED", "bool", "Rapport quotidien dans le salon de guerre"),
     Spec("heure_quotidien", "daily_report_time", "DAILY_REPORT_TIME", "heure", "Heure du rapport quotidien"),
     Spec("liaison", "link_verification", "LINK_VERIFICATION", "mode", "Vérification de la liaison"),
+    Spec("maj_auto", "auto_update_enabled", "AUTO_UPDATE_ENABLED", "bool", "Mise à jour automatique depuis GitHub"),
+    Spec("maj_intervalle", "update_interval", "AUTO_UPDATE_INTERVAL", "minutes", "Intervalle de vérification des mises à jour"),
     Spec("api_url", "api_base_url", "CR_API_BASE_URL", "url", "URL de l'API (proxy)"),
 )
 BY_KEY = {s.key: s for s in SPECS}
@@ -114,6 +116,10 @@ def parse(kind: str, raw: str):
         if lowered in ("non", "inactif", "inactive", "désactivé", "faux", "false", "0", "off"):
             return False
         raise SettingError("Valeur invalide : `oui` ou `non`.")
+    if kind == "minutes":
+        if not raw.isdigit() or not 5 <= int(raw) <= 1440:
+            raise SettingError("Intervalle invalide : entre 5 et 1440 minutes.")
+        return int(raw)
     if kind == "heure":
         m = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", raw)
         if not m or int(m[1]) > 23 or int(m[2]) > 59:
@@ -129,6 +135,8 @@ def serialize(kind: str, value) -> str:
         return value.strftime("%H:%M")
     if kind == "bool":
         return "1" if value else "0"
+    if kind == "minutes":
+        return str(value)
     return str(value)
 
 
@@ -143,6 +151,8 @@ def display(spec: Spec, value) -> str:
         return f"`{value.strftime('%H:%M')}`"
     if spec.kind == "bool":
         return "✅ Activé" if value else "❌ Désactivé"
+    if spec.kind == "minutes":
+        return f"{value} min"
     if spec.kind == "id" and spec.key.startswith("salon"):
         return f"<#{value}>"
     if spec.kind == "id" and spec.key == "role_staff":
