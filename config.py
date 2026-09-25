@@ -46,6 +46,8 @@ class Config:
     timezone: str = "Europe/Paris"
     reminder_times: list[time] = field(default_factory=_default_times)
     link_verification: str = "token"
+    auto_update_enabled: bool = False
+    update_interval: int = 60
     daily_report_enabled: bool = False
     daily_report_time: time = time(9, 0)
 
