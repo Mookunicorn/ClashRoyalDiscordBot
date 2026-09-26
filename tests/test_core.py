@@ -950,5 +950,20 @@ class UpdaterTests(unittest.IsolatedAsyncioTestCase):
             os.environ["PATH"] = old_path
 
 
+class WizardLabelLengthTests(unittest.TestCase):
+    """Discord refuse un label de champ de modale de plus de 45 caractères (HTTP 400) —
+    évite de régresser dessus pour chaque étape de l'assistant."""
+
+    def test_all_step_labels_within_limit(self):
+        bot = SimpleNamespace(cfg=Config(discord_token="x"))
+        for step_cls in (setup_mod.Step1, setup_mod.Step2, setup_mod.Step3, setup_mod.Step4):
+            modal = step_cls(bot)
+            for item in modal.children:
+                self.assertLessEqual(
+                    len(item.label), 45,
+                    f"{step_cls.__name__} : label trop long ({len(item.label)} caractères) : {item.label!r}"
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
