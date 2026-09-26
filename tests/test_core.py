@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,6 +16,7 @@ from config import Config  # noqa: E402
 from cogs.tracker import Tracker  # noqa: E402
 from cogs.war import War  # noqa: E402
 from embeds import build_daily_report_embed  # noqa: E402
+from updater import apply_update, behind_count, is_git_repo  # noqa: E402
 from settings import BY_KEY, Settings, SettingError, parse as parse_setting  # noqa: E402
 from cr_api import ClashAPIError, ClashRoyaleAPI, NotFound  # noqa: E402
 from discord_sync import ALL_KEY, RoleSync, nick_for  # noqa: E402
@@ -845,6 +847,107 @@ class WizardStepJumpTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(setup_mod.wizard_guild(self.bot, 1))   # pas de end_wizard() prématuré
         final_view = it.followup.sent[-1][1]["view"]
         self.assertTrue(any(isinstance(c, setup_mod.StepSelect) for c in final_view.children))
+
+
+class MinutesSettingTests(unittest.TestCase):
+    def test_parse_and_display(self):
+        from settings import display
+        self.assertEqual(parse_setting("minutes", "60"), 60)
+        self.assertEqual(display(BY_KEY["maj_intervalle"], 60), "60 min")
+        with self.assertRaises(SettingError):
+            parse_setting("minutes", "3")   # < 5
+        with self.assertRaises(SettingError):
+            parse_setting("minutes", "9999")   # > 1440
+        with self.assertRaises(SettingError):
+            parse_setting("minutes", "abc")
+
+
+def write_fake_git(fake_bin: str, lines: list) -> None:
+    """Écrit un faux exécutable `git` dans fake_bin à partir de lignes shell simples."""
+    import stat
+    script = os.path.join(fake_bin, "git")
+    with open(script, "w") as f:
+        f.write("\n".join(["#!/bin/sh"] + lines) + "\n")
+    os.chmod(script, os.stat(script).st_mode | stat.S_IEXEC)
+
+
+class UpdaterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_not_a_git_repo(self):
+        import tempfile
+        import updater as updater_mod
+        tmp = tempfile.mkdtemp()
+        old_root = updater_mod.REPO_ROOT
+        updater_mod.REPO_ROOT = tmp
+        try:
+            self.assertFalse(is_git_repo())
+            self.assertIsNone(await behind_count(SimpleNamespace()))
+        finally:
+            updater_mod.REPO_ROOT = old_root
+
+    async def test_behind_count_and_update_via_fake_git(self):
+        # Simule `git` avec un faux exécutable pour ne dépendre d'aucun vrai dépôt.
+        import tempfile
+        import updater as updater_mod
+        tmp = tempfile.mkdtemp()
+        os.makedirs(os.path.join(tmp, ".git"))
+        fake_bin = os.path.join(tmp, "fakebin")
+        os.makedirs(fake_bin)
+        write_fake_git(fake_bin, [
+            'if [ "$1" = fetch ]; then exit 0; fi',
+            'if [ "$1" = rev-list ]; then echo 3; exit 0; fi',
+            'if [ "$1" = pull ]; then echo pulled; exit 0; fi',
+            'exit 1',
+        ])
+        old_root, old_path = updater_mod.REPO_ROOT, os.environ.get("PATH", "")
+        updater_mod.REPO_ROOT = tmp
+        os.environ["PATH"] = fake_bin + os.pathsep + old_path
+        try:
+            self.assertTrue(is_git_repo())
+            self.assertEqual(await behind_count(SimpleNamespace()), 3)
+
+            closed = []
+
+            class FakeBot:
+                async def close(self):
+                    closed.append(True)
+
+            async def noop_sleep(*_a, **_k):
+                return None
+
+            # empêche le vrai redémarrage (os.execv) et le vrai pip (sys.prefix bidon -> pip introuvable)
+            with unittest.mock.patch("os.execv") as fake_execv, \
+                 unittest.mock.patch("asyncio.sleep", new=noop_sleep), \
+                 unittest.mock.patch("sys.prefix", tmp):
+                result = await apply_update(FakeBot())
+            self.assertTrue(result)
+            self.assertEqual(closed, [True])
+            fake_execv.assert_called_once()
+        finally:
+            updater_mod.REPO_ROOT = old_root
+            os.environ["PATH"] = old_path
+
+    async def test_apply_update_aborts_on_pull_failure(self):
+        import tempfile
+        import updater as updater_mod
+        tmp = tempfile.mkdtemp()
+        os.makedirs(os.path.join(tmp, ".git"))
+        fake_bin = os.path.join(tmp, "fakebin")
+        os.makedirs(fake_bin)
+        write_fake_git(fake_bin, [
+            'if [ "$1" = pull ]; then echo conflict; exit 1; fi',
+            'exit 0',
+        ])
+        old_root, old_path = updater_mod.REPO_ROOT, os.environ.get("PATH", "")
+        updater_mod.REPO_ROOT = tmp
+        os.environ["PATH"] = fake_bin + os.pathsep + old_path
+        try:
+            with unittest.mock.patch("os.execv") as fake_execv:
+                result = await apply_update(SimpleNamespace())
+            self.assertFalse(result)
+            fake_execv.assert_not_called()
+        finally:
+            updater_mod.REPO_ROOT = old_root
+            os.environ["PATH"] = old_path
 
 
 if __name__ == "__main__":
