@@ -332,7 +332,7 @@ class Step4(discord.ui.Modal, title="Configuration 4/4 — Guerre & liaison"):
             placeholder="09:00", default=cfg.daily_report_time.strftime("%H:%M"),
         )
         self.liaison = discord.ui.TextInput(
-            label="Vérification de liaison : token / carte / clan", required=False,
+            label="Liaison : token / carte / clan", required=False,
             placeholder="token (recommandé, plus simple)", default=cfg.link_verification,
         )
         self.api_url = discord.ui.TextInput(
