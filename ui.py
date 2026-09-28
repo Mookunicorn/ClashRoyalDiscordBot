@@ -35,7 +35,7 @@ async def can_edit(interaction: discord.Interaction, tag: str) -> bool:
 
 # ---------------------------------------------------------------------- liaison Discord <-> Clash Royale
 # Parcours en 2 étapes (formulaires) :
-#   1. le joueur saisit son tag  -> le bot vérifie que le tag est correct et dans le clan
+#   1. le joueur saisit son tag  -> le bot vérifie que le tag existe (membre du clan ou invité)
 #   2. il saisit son jeton API   -> le bot le fait vérifier par Supercell (preuve de propriété)
 # Le jeton est saisi dans un formulaire : il ne reste dans aucun message de la conversation.
 TAG_RE = re.compile(r"^#[0289PYLQGRJCUV]{3,15}$")
@@ -53,7 +53,10 @@ def _recent_fails(user_id: int) -> list[float]:
 
 
 async def check_link_eligibility(bot, tag: str, user_id: int) -> tuple[dict | None, str | None]:
-    """Retourne (infos du membre du clan, None) ou (None, message d'erreur)."""
+    """Retourne (infos du joueur, None) ou (None, message d'erreur).
+
+    Un joueur qui n'est pas (ou plus) dans le clan peut quand même se lier : il reçoit
+    alors le rôle « Invité » plutôt que le rôle de son rang."""
     if not TAG_RE.match(tag):
         return None, f"Tag incorrect : `{tag}` n'a pas un format valide (caractères autorisés : 0289PYLQGRJCUV)."
     info = bot.members.get(tag)
@@ -64,10 +67,7 @@ async def check_link_eligibility(bot, tag: str, user_id: int) -> tuple[dict | No
             return None, f"Tag incorrect : aucun joueur ne correspond à `{tag}`."
         except ClashAPIError:
             return None, "L'API Clash Royale ne répond pas, réessaie dans un instant."
-        return None, (
-            f"Le tag `{tag}` existe (**{esc(profile.get('name', '?'))}**) mais ce joueur n'est pas dans le clan "
-            "pour le moment. Si tu viens de rejoindre, réessaie dans 1–2 minutes."
-        )
+        info = {"tag": tag, "name": profile.get("name", tag)}  # joueur hors clan : lié comme invité
     existing = await bot.db.get_player(tag)
     if existing and existing.get("discord_id") and existing["discord_id"] != user_id:
         return None, "Ce joueur est déjà lié à un autre compte Discord. Si c'est une erreur, préviens le staff."
@@ -77,14 +77,20 @@ async def check_link_eligibility(bot, tag: str, user_id: int) -> tuple[dict | No
     return info, None
 
 
+def clan_status(bot, tag: str) -> str:
+    """Libellé affiché après vérification du tag : membre du clan, ou lié comme invité."""
+    return "membre du clan" if tag in bot.members else "pas dans le clan : tu seras lié en tant qu'**invité**"
+
+
 async def finalize_link(bot, interaction: discord.Interaction, tag: str, info: dict, verified: bool,
                         method: str = "jeton API") -> None:
     await bot.db.set_discord_id(tag, interaction.user.id, info["name"], verified=verified)
     _FAILS.pop(interaction.user.id, None)
     _CHALLENGES.pop(interaction.user.id, None)
     report = await bot.sync.apply_safe(tag)
+    guest_note = "\n🎫 Ce joueur n'est pas dans le clan : rôle « Invité » attribué (si configuré)." if tag not in bot.members else ""
     await interaction.followup.send(
-        f"✅ Compte lié à **{esc(info['name'])}** (`{tag}`).\n" + (report.summary() if report else ""),
+        f"✅ Compte lié à **{esc(info['name'])}** (`{tag}`).\n" + (report.summary() if report else "") + guest_note,
         ephemeral=True,
     )
     # trace pour le staff
@@ -92,8 +98,9 @@ async def finalize_link(bot, interaction: discord.Interaction, tag: str, info: d
         channel_id = bot.cfg.log_channel_id
         channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
         proof = f"identité vérifiée ({method}) ✅" if verified else "⚠️ sans vérification d'identité"
+        clan_note = "" if tag in bot.members else " (hors clan — invité)"
         await channel.send(
-            f"🔗 {interaction.user.mention} s'est lié au joueur **{esc(info['name'])}** (`{tag}`) — {proof}.",
+            f"🔗 {interaction.user.mention} s'est lié au joueur **{esc(info['name'])}** (`{tag}`){clan_note} — {proof}.",
             allowed_mentions=discord.AllowedMentions.none(),
         )
     except (discord.HTTPException, TypeError, AttributeError):
@@ -183,7 +190,7 @@ async def start_card_challenge(interaction: discord.Interaction, tag: str, info:
     embed = discord.Embed(
         title=f"Étape 2/2 : choisis la carte favorite « {card['name']} »",
         description=(
-            f"✅ Tag correct : **{esc(info['name'])}** (`{tag}`), membre du clan.\n\n"
+            f"✅ Tag correct : **{esc(info['name'])}** (`{tag}`), {clan_status(bot, tag)}.\n\n"
             "Pour prouver que ce compte est le tien, change ta **carte favorite** dans Clash Royale :\n"
             "1. ouvre ton **profil** (ton nom en haut à gauche) ;\n"
             "2. touche la **carte favorite** et choisis "
@@ -259,7 +266,7 @@ class LinkModal(discord.ui.Modal, title="Étape 1/2 : ton tag"):
         mode = bot.cfg.link_verification
         if mode == "token":
             await interaction.followup.send(
-                f"✅ Tag correct : **{esc(info['name'])}** (`{tag}`), membre du clan.\n\n"
+                f"✅ Tag correct : **{esc(info['name'])}** (`{tag}`), {clan_status(bot, tag)}.\n\n"
                 "**Étape 2/2 — confirme que ce compte est bien le tien.** Ouvre Clash Royale, va dans les "
                 "paramètres et copie ton **jeton API**, puis clique sur le bouton ci-dessous et colle-le. "
                 "Il est vérifié par Supercell et n'est conservé nulle part.",
@@ -290,7 +297,8 @@ def link_panel_embed() -> discord.Embed:
             "Clique sur le bouton pour lier ton compte Discord à ton joueur :\n"
             "**1.** saisis ton **tag** Clash Royale (le bot vérifie qu'il est correct) ;\n"
             "**2.** prouve que le compte est le tien (le bot t'explique comment : jeton API à coller, ou carte favorite à choisir).\n\n"
-            "Ensuite, le bot te renomme avec ton pseudo en jeu et te donne le rôle de ton rang dans le clan."
+            "Ensuite, le bot te renomme avec ton pseudo en jeu et te donne le rôle de ton rang dans le clan "
+            "(ou le rôle « Invité » si tu n'es pas dans le clan)."
         ),
         color=discord.Color.green(),
     )
