@@ -14,6 +14,7 @@ import discord
 log = logging.getLogger("sync")
 
 ALL_KEY = "_all"  # rôle commun à tous les membres du clan
+GUEST_KEY = "_guest"  # rôle pour un compte lié mais pas (ou plus) membre du clan
 RANK_KEYS = ("member", "elder", "coLeader", "leader")
 RANK_NAMES = {
     "member": "Membre",
@@ -21,6 +22,7 @@ RANK_NAMES = {
     "coLeader": "Chef adjoint",
     "leader": "Chef",
     ALL_KEY: "Tous les membres du clan",
+    GUEST_KEY: "Invité (lié, hors clan)",
 }
 
 
@@ -137,6 +139,8 @@ class RoleSync:
                 desired.add(mapping[ALL_KEY])
             if info.get("role") in mapping:
                 desired.add(mapping[info["role"]])
+        elif GUEST_KEY in mapping:
+            desired.add(mapping[GUEST_KEY])  # lié mais pas membre du clan : rôle « Invité »
 
         # -- pseudo
         if await self.rename_enabled() and plan.in_clan:
