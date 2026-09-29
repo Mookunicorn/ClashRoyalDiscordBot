@@ -7,13 +7,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from discord_sync import ALL_KEY, RANK_KEYS, RANK_NAMES
+from discord_sync import ALL_KEY, GUEST_KEY, RANK_KEYS, RANK_NAMES
 from helpers import check_token_endpoint, handle_command_error, member_autocomplete, resolve_tag
 from ui import LinkView, is_staff, link_panel_embed
 
 log = logging.getLogger("roles")
 
-RANK_CHOICES = [app_commands.Choice(name=RANK_NAMES[k], value=k) for k in (*RANK_KEYS, ALL_KEY)]
+RANK_CHOICES = [app_commands.Choice(name=RANK_NAMES[k], value=k) for k in (*RANK_KEYS, ALL_KEY, GUEST_KEY)]
 
 
 class DiscordRoles(commands.Cog):
@@ -95,7 +95,7 @@ class DiscordRoles(commands.Cog):
         mapping = await self.bot.db.rank_roles()
         lines = [
             f"• **{RANK_NAMES[k]}** → " + (f"<@&{mapping[k]}>" if k in mapping else "*non configuré*")
-            for k in (*RANK_KEYS, ALL_KEY)
+            for k in (*RANK_KEYS, ALL_KEY, GUEST_KEY)
         ]
         rename = await self.bot.sync.rename_enabled()
         lines.append("")
