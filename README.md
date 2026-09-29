@@ -42,12 +42,14 @@ permission spéciale (voir plus bas).
 
 **Discord ↔ Clash Royale**
 - 🔗 **Liaison protégée contre l'usurpation**, en message privé au nouvel arrivant (repli
-  sur un salon si ses MP sont fermés) : tag vérifié (format, existence, présence dans le
-  clan), puis preuve de propriété au choix (voir « Sécurité de la liaison »). C'est un
-  parcours séparé de `/configurer`, propre à chaque joueur qui rejoint le Discord.
+  sur un salon si ses MP sont fermés) : tag vérifié (format, existence), puis preuve de
+  propriété au choix (voir « Sécurité de la liaison »). Un joueur qui n'est pas dans le
+  clan peut aussi se lier : voir « Comptes invités » ci-dessous. C'est un parcours séparé
+  de `/configurer`, propre à chaque joueur qui rejoint le Discord.
 - Le bot **renomme automatiquement** le membre avec son pseudo Clash Royale (pas de prénom
   à saisir : le pseudo Discord suit le pseudo en jeu) et lui donne le **rôle correspondant
-  à son rang** (Membre / Aîné / Chef adjoint / Chef, + un rôle commun optionnel)
+  à son rang** (Membre / Aîné / Chef adjoint / Chef, + un rôle commun optionnel, + un rôle
+  « Invité » pour les comptes liés hors clan)
 - Mise à jour automatique à la moindre promotion, départ (rôles retirés) ou changement de
   pseudo en jeu
 
@@ -84,7 +86,7 @@ permission spéciale (voir plus bas).
 | Commande | Rôle |
 |---|---|
 | `/configurer` | **La seule commande de réglage** : assistant en message privé avec 4 étapes (clé API, clan ; salons ; rôle staff, surveillance, fuseau ; rappels, rapport quotidien, liaison, URL API), accessibles dans n'importe quel ordre via un menu déroulant à chaque étape. Relançable à tout moment ; un bouton « Tester » est toujours disponible. |
-| `/rang_config`, `/rang_retirer`, `/rang_liste` | Associer un rang du clan à un rôle Discord |
+| `/rang_config`, `/rang_retirer`, `/rang_liste` | Associer un rang du clan (ou « Invité ») à un rôle Discord |
 | `/renommage` | Activer/désactiver le renommage automatique |
 | `/sync` | Forcer la synchro pseudos + rôles |
 | `/lier`, `/delier` | Lier/délier manuellement un compte (sans preuve — dernier recours) |
@@ -163,31 +165,47 @@ L'API Clash Royale ne permet pas de prouver directement qu'un tag appartient à 
 qui le saisit. Le bot propose trois niveaux, réglables via `/configurer` (étape 4, champ
 « Vérification de liaison ») :
 
-- **`token` (par défaut, recommandé)** — le joueur colle son **jeton API** (Paramètres du
-  jeu → tout en bas), vérifié directement par Supercell
-  (`POST /players/{tag}/verifytoken`). C'est le plus simple pour le joueur : un copier-
-  coller, sans rien changer dans sa partie. Cet endpoint s'est révélé **refusé (HTTP
-  401/403)** pour certaines clés développeur lors des essais — utilise `/liaison_test`, ou
-  le bouton « Tester » de `/configurer`, pour vérifier que ta clé y a accès ; si ce n'est
-  pas le cas, passe au mode `carte` ci-dessous.
+- **`token` (par défaut)** — le joueur colle son **jeton API** (Paramètres du jeu → tout en
+  bas), vérifié directement par Supercell (`POST /players/{tag}/verifytoken`, en-tête
+  `Authorization: Bearer <ta clé>`, corps `{"token": "..."}`, réponse `{tag, token,
+  status}`). C'est le plus simple pour le joueur : un copier-coller, sans rien changer dans
+  sa partie. ⚠️ **Cet endpoint est restreint par Supercell** : les schémas de requête/réponse
+  apparaissent bien dans la documentation officielle, mais l'opération elle-même n'est pas
+  listée parmi les endpoints des joueurs, et la documentation de la bibliothèque
+  Python `clashroyale` la décrit comme « réservée à certains membres de la communauté ».
+  Une clé développeur standard reçoit donc une erreur 401/403, quoi qu'on fasse côté code
+  — c'est le cas de la plupart des clés. Vérifie avec `/liaison_test` (ou le bouton
+  « Tester » de `/configurer`) ; si c'est refusé, utilise le mode `carte` ci-dessous.
 - **`carte`** — après avoir saisi son tag, le joueur doit changer sa **carte favorite** en
   jeu pour une carte précise que le bot lui indique (aléatoire, différente de sa carte
   actuelle), puis cliquer sur « Vérifier ». Plus de manipulations pour le joueur, mais ne
   nécessite aucun accès spécial à l'API — un filet de sécurité qui fonctionne avec
   n'importe quelle clé développeur standard si `token` est indisponible.
 - **`clan`** — seule la présence du tag dans le clan est vérifiée, **sans preuve de
-  propriété**. À réserver aux cas où les deux autres modes sont inutilisables.
+  propriété**. À réserver aux cas où les deux autres modes sont inutilisables. (Pour un
+  invité hors clan, ce mode n'offre aucune vérification du tout — voir la note ci-dessous.)
 
 Dans tous les cas : un compte Discord ne peut être lié qu'à un seul joueur, un joueur déjà
 lié ne peut pas être repris par quelqu'un d'autre, et chaque liaison réussie est tracée
-dans le salon des logs (`method` précise si elle a été vérifiée ou non). `/verifier` et
-`/verifier_tous` permettent au staff d'auditer l'état des liaisons à tout moment, et
-`/lier` reste disponible en dernier recours pour une liaison manuelle sans preuve.
+dans le salon des logs (`method` précise si elle a été vérifiée ou non, et si le joueur est
+hors clan). `/verifier` et `/verifier_tous` permettent au staff d'auditer l'état des
+liaisons à tout moment, et `/lier` reste disponible en dernier recours pour une liaison
+manuelle sans preuve.
 
 La clé API elle-même est **chiffrée** dans la base SQLite (jamais en clair), avec une clé
 de chiffrement dérivée de `DISCORD_TOKEN` (ou de `SECRET_KEY` si tu la définis) — si tu
 changes le token du bot, la clé API stockée redevient illisible et il faut la ressaisir
 avec `/configurer`.
+
+## Comptes invités (hors clan)
+
+Un joueur qui n'est **pas** dans le clan peut quand même lier son compte (mêmes
+vérifications, `token` ou `carte`). Il reçoit alors le rôle **« Invité »** au lieu d'un
+rôle de rang — à configurer avec `/rang_config rang:"Invité (lié, hors clan)" role:@Invité`.
+Il n'est pas renommé (le bot ne suit que les pseudos des membres du clan). Si ce joueur
+rejoint le clan plus tard, son rôle d'invité est remplacé automatiquement par celui de son
+rang ; s'il le quitte, il repasse invité. Sans rôle « Invité » configuré, un compte hors
+clan est lié mais ne reçoit aucun rôle.
 
 ## Ce que l'API permet — et ne permet pas
 
@@ -220,10 +238,10 @@ config.py          structure de configuration (valeurs par défaut)
 settings.py        réglages modifiables depuis Discord (validation, chiffrement, /config)
 cr_api.py          client API (tous les endpoints documentés, retries, cache)
 database.py        SQLite (joueurs, passages, clans croisés, rôles de rang, réglages)
-discord_sync.py    pseudo en jeu + rôles Discord selon le rang (plan / apply)
+discord_sync.py    pseudo en jeu + rôles Discord selon le rang, y compris « Invité » (plan / apply)
 history.py         reconstruction des 5 derniers clans + moyenne de guerre
 embeds.py          mise en forme des messages
-ui.py              boutons persistants, modales, défi carte favorite
+ui.py              boutons persistants, modales, défi carte favorite, liaison invité
 helpers.py         résolution nom/tag, autocomplétion, erreurs communes
 war_utils.py        état de la guerre en cours (decks restants)
 updater.py           mise à jour automatique (git pull + redémarrage)
@@ -231,7 +249,7 @@ cogs/tracker.py     arrivées / départs / promotions / réglages du clan
 cogs/war.py         rappels de decks + récap de guerre
 cogs/commands.py    commandes du clan suivi
 cogs/explorer.py    cartes, tournois, classements, pays, saisons, événements
-cogs/discord_roles.py  rangs → rôles, renommage, accueil, liaison
+cogs/discord_roles.py  rangs → rôles (dont Invité), renommage, accueil, liaison
 cogs/verification.py   /verifier, /verifier_tous
 cogs/updater.py         mise à jour automatique (tâche périodique + /maj_verifier)
 cogs/setup.py           /configurer (assistant privé, tout le réglage en une commande)
