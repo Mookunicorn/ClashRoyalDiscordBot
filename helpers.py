@@ -78,7 +78,7 @@ async def check_token_endpoint(bot) -> tuple[str, str]:
     return {
         "invalid": ("ok", "L'endpoint de vérification répond et **refuse** un faux jeton : liaison par jeton utilisable."),
         "ok": ("error", "L'API a **accepté** un faux jeton : vérification non fiable. Relance `/configurer` et choisis le mode « carte »."),
-        "unavailable": ("warn", "L'endpoint est **refusé** pour ta clé (401/403) : liaison par jeton indisponible. Relance `/configurer` et choisis le mode « carte »."),
+        "unavailable": ("warn", "L'endpoint de vérification par jeton est **refusé** pour ta clé (401/403) : Supercell le réserve à certains partenaires, ce n'est pas un bug. Relance `/configurer` et choisis le mode « carte » à l'étape 4."),
         "notfound": ("warn", "Tag de test introuvable, réessaie."),
     }[result]
 
