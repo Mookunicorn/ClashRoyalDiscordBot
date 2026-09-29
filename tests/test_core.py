@@ -19,7 +19,7 @@ from embeds import build_daily_report_embed  # noqa: E402
 from updater import apply_update, behind_count, is_git_repo  # noqa: E402
 from settings import BY_KEY, Settings, SettingError, parse as parse_setting  # noqa: E402
 from cr_api import ClashAPIError, ClashRoyaleAPI, NotFound  # noqa: E402
-from discord_sync import ALL_KEY, RoleSync, nick_for  # noqa: E402
+from discord_sync import ALL_KEY, GUEST_KEY, RoleSync, nick_for  # noqa: E402
 from database import Database  # noqa: E402
 from embeds import build_leave_embed, build_player_embed, build_war_recap  # noqa: E402
 from history import build_history  # noqa: E402
@@ -319,6 +319,53 @@ class RoleSyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(nick_for("x" * 50)), 32)
 
 
+class GuestRoleTests(unittest.IsolatedAsyncioTestCase):
+    """Un compte lié mais hors clan reçoit le rôle « Invité » (s'il est configuré)."""
+
+    async def asyncSetUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.db = Database(os.path.join(self.tmp, "g.db"))
+        await self.db.connect()
+        self.r_member, self.r_guest = FakeRole(10, "Membre"), FakeRole(22, "Invité")
+        self.user = FakeMember(200)
+        self.guild = FakeGuild([self.r_member, self.r_guest], [self.user])
+        self.bot = SimpleNamespace(
+            cfg=SimpleNamespace(guild_id=1), db=self.db, guilds=[self.guild],
+            get_guild=lambda gid: self.guild, members={"#X1": member("#X1", "Alice")},
+        )
+        self.sync = RoleSync(self.bot)
+        await self.db.set_rank_role("member", 10)
+        await self.db.set_rank_role(GUEST_KEY, 22)
+        await self.db.set_discord_id("#G1", 200, "Visiteur")   # lié, mais absent de bot.members
+
+    async def asyncTearDown(self):
+        await self.db.close()
+
+    async def test_guest_gets_guest_role_only(self):
+        rep = await self.sync.apply("#G1")
+        self.assertEqual([r.id for r in self.user.roles], [22])
+        self.assertIsNone(self.user.nick)              # pas de renommage hors clan
+        self.assertTrue(rep.changed)
+
+    async def test_joining_clan_swaps_guest_for_rank_role(self):
+        await self.sync.apply("#G1")
+        self.bot.members["#G1"] = member("#G1", "Visiteur")   # le joueur rejoint le clan
+        await self.sync.apply("#G1")
+        self.assertEqual([r.id for r in self.user.roles], [10])
+
+    async def test_leaving_clan_swaps_rank_role_for_guest(self):
+        self.bot.members["#G1"] = member("#G1", "Visiteur")
+        await self.sync.apply("#G1")
+        del self.bot.members["#G1"]                            # le joueur quitte le clan
+        await self.sync.apply("#G1")
+        self.assertEqual([r.id for r in self.user.roles], [22])
+
+    async def test_no_guest_role_configured_means_no_roles(self):
+        await self.db.del_rank_role(GUEST_KEY)
+        await self.sync.apply("#G1")
+        self.assertEqual(self.user.roles, [])
+
+
 class FakeHTTPResp:
     def __init__(self, status, body=""):
         self.status, self._body = status, body
@@ -458,7 +505,12 @@ class LinkFlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_step1_incorrect_tags(self):
         self.assertIn("format", (await self.step1("#ABC")).last)
         self.assertIn("aucun joueur", (await self.step1("#2GGG")).last)
-        self.assertIn("pas dans le clan", (await self.step1("#22PP")).last)   # existe mais hors clan
+
+    async def test_step1_guest_outside_clan_can_proceed(self):
+        it = await self.step1("#22PP")   # existe (API) mais pas dans le clan suivi
+        content, kw = it.followup.sent[-1]
+        self.assertIn("Tag correct", content)
+        self.assertIsInstance(kw["view"], ui.TokenView)
 
     async def test_step1_ok_then_token_view(self):
         it = await self.step1("2ppy")
